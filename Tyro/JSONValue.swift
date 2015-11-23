@@ -9,12 +9,37 @@
 import Foundation
 import Swiftz
 
+//public typealias LazyJSONValue = () -> JSONValue
+
 public enum JSONValue {
     case Array([JSONValue])
     case Object([Swift.String : JSONValue])
     case String(Swift.String)
     case Number(NSNumber)
     case Null
+    case Lazy(() -> JSONValue)
+}
+
+extension JSONValue {
+    static func from(value : [JSONValue]) -> JSONValue {
+        return .Array(value)
+    }
+    
+    static func from(value : [Swift.String : JSONValue]) -> JSONValue {
+        return .Object(value)
+    }
+    
+    static func from(value : Swift.String) -> JSONValue {
+        return .String(value)
+    }
+    
+    static func from(value : NSNumber) -> JSONValue {
+        return .Number(value)
+    }
+    
+    static func from(value : NSNull) -> JSONValue {
+        return .Null
+    }
 }
 
 extension JSONValue : CustomStringConvertible {
@@ -30,6 +55,8 @@ extension JSONValue : CustomStringConvertible {
             return "JSONValue(Number(\(value)))"
         case .Null:
             return "JSONValue(Null)"
+        case .Lazy(let closure):
+            return "JSONValue(Lazy(\(closure())))"
         }
     }
 }
@@ -48,6 +75,12 @@ public func == (lhs : JSONValue, rhs : JSONValue) -> Bool {
         return lhsValue.isEqualToNumber(rhsValue)
     case (.Null, .Null):
         return true
+    case (.Lazy(let lhsValue), .Lazy(let rhsValue)):
+        return lhsValue() == rhsValue()
+    case (.Lazy(let lhsValue), let rhsValue):
+        return lhsValue() == rhsValue
+    case (let lhsValue, .Lazy(let rhsValue)):
+        return lhsValue == rhsValue()
     default:
         return false
     }
@@ -74,6 +107,7 @@ extension JSONValue : JSONValueable {
     var array : [JSONValue]? {
         switch self {
         case .Array(let values): return values
+        case .Lazy(let closure): return closure().array
         default: return nil
         }
     }
@@ -81,6 +115,7 @@ extension JSONValue : JSONValueable {
     var object : [Swift.String : JSONValue]? {
         switch self {
         case .Object(let value): return value
+        case .Lazy(let closure): return closure().object
         default: return nil
         }
     }
@@ -88,6 +123,7 @@ extension JSONValue : JSONValueable {
     var string : Swift.String? {
         switch self {
         case .String(let value): return value
+        case .Lazy(let closure): return closure().string
         default: return nil
         }
     }
@@ -95,6 +131,7 @@ extension JSONValue : JSONValueable {
     var number : NSNumber? {
         switch self {
         case .Number(let value): return value
+        case .Lazy(let closure): return closure().number
         default: return nil
         }
     }
@@ -102,6 +139,7 @@ extension JSONValue : JSONValueable {
     var null : NSNull? {
         switch self {
         case .Null: return NSNull()
+        case .Lazy(let closure): return closure().null
         default: return nil
         }
     }
@@ -113,6 +151,7 @@ extension JSONValue : JSONValueable {
         case .String(let s): return s
         case .Number(let n): return n
         case .Null: return NSNull()
+        case .Lazy(let closure): return closure().anyObject
         }
     }
 }
@@ -162,8 +201,8 @@ extension JSONValue {
 extension JSONValue {
     public static func decodeEither(data : NSData) -> Either<JSONError, JSONValue> {
         do {
-            let object = try NSJSONSerialization.JSONObjectWithData(data, options : NSJSONReadingOptions(rawValue : 0))
-            return JSONEncoder.encoder.encodeEither(object)
+            let objectOrArray = try NSJSONSerialization.JSONObjectWithData(data, options : NSJSONReadingOptions(rawValue : 0))
+            return JSONEncoder.encoder.encodeEither(objectOrArray)
         }
         catch let error {
             return .Left(.Error(error, "Error while decoding data with decodeEither"))
